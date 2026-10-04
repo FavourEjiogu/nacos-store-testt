@@ -49,11 +49,10 @@ export default function RegisterPage() {
         throw new Error("Failed to create user account.");
       }
 
-      // 2. Insert profile data
-      const { error: profileError } = await supabase.from('profiles').insert([
-        {
-          id: authData.user.id,
-          email,
+      // 2. Update profile data (created by auth trigger)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
           full_name: fullName,
           nacos_id: nacosId,
           nacos_id_normalized: nacosId.trim().toUpperCase(),
@@ -62,9 +61,8 @@ export default function RegisterPage() {
           level,
           phone,
           hostel_name_snapshot: hostel,
-          verification_status: 'PENDING',
-        }
-      ]);
+        })
+        .eq('id', authData.user.id);
 
       if (profileError) {
         // Log it or handle it, but for now we throw

@@ -17,7 +17,13 @@ export default function OnboardingPage() {
     setLoading(true);
     setError(null);
     try {
-      // Find the active campaign
+      // 1. Verify membership
+      const { error: verifyError } = await supabase.rpc('verify_membership');
+      if (verifyError) {
+        throw new Error(verifyError.message || "Failed to verify NACOS membership. Please check your ID.");
+      }
+
+      // 2. Find the active campaign
       const { data: campaign, error: campaignError } = await supabase
         .from('campaigns')
         .select('id, name')
@@ -27,13 +33,11 @@ export default function OnboardingPage() {
         .single();
 
       if (campaignError || !campaign) {
-        // Just proceed if no campaign setup yet for demo purposes
-        console.warn("No active campaign found", campaignError);
         router.push('/shop');
         return;
       }
 
-      // Call RPC to grant coins
+      // 3. Call RPC to grant coins
       const { error: grantError } = await supabase.rpc('grant_initial_coins', {
         target_campaign_id: campaign.id
       });

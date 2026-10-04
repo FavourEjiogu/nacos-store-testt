@@ -18,7 +18,7 @@ export default async function AdminProductsPage() {
   // Fetch all products
   const { data: products } = await supabase
     .from('products')
-    .select('id, name, slug, pricing_mode')
+    .select('id, name, slug, status')
     .order('created_at', { ascending: false });
 
   return (
@@ -36,7 +36,7 @@ export default async function AdminProductsPage() {
             <tr>
               <th className="p-4 font-bold uppercase text-sm">Product Name</th>
               <th className="p-4 font-bold uppercase text-sm">Slug</th>
-              <th className="p-4 font-bold uppercase text-sm">Pricing Mode</th>
+              <th className="p-4 font-bold uppercase text-sm">Status</th>
               <th className="p-4 font-bold uppercase text-sm text-right">Actions</th>
             </tr>
           </thead>
@@ -45,7 +45,7 @@ export default async function AdminProductsPage() {
               <tr key={product.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50 transition-colors">
                 <td className="p-4 font-bold">{product.name}</td>
                 <td className="p-4 text-sm text-text-muted">{product.slug}</td>
-                <td className="p-4 text-sm font-bold uppercase">{product.pricing_mode}</td>
+                <td className="p-4 text-sm font-bold uppercase">{product.status}</td>
                 <td className="p-4 text-right">
                   {/* Edit functionality not fully fleshed in MVP, but button is here */}
                   <button className="text-brand-green font-bold text-sm uppercase hover:underline">Edit</button>

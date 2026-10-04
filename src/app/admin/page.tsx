@@ -1,4 +1,4 @@
-// feat: build admin dashboard for store analytics
+// feat: secure admin dashboard with real RBAC check
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
@@ -6,6 +6,17 @@ import Link from 'next/link';
 export const metadata = {
   title: 'Admin Dashboard | NACOS 100',
 };
+
+async function getAdminRole(supabase: Awaited<ReturnType<typeof createClient>>, userId: string) {
+  const { data } = await supabase
+    .from('admin_roles')
+    .select('role')
+    .eq('user_id', userId)
+    .in('role', ['SUPER_ADMIN', 'CATALOG_ADMIN', 'MEMBER_VERIFIER', 'FULFILLMENT_ADMIN', 'FINANCE_ADMIN', 'SUPPORT_ADMIN'])
+    .limit(1)
+    .maybeSingle();
+  return data?.role ?? null;
+}
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient();
@@ -15,57 +26,98 @@ export default async function AdminDashboardPage() {
     redirect('/login');
   }
 
-  // Very basic admin check. We check if the user is an admin by querying their profile or a specific table.
-  // In our simplified schema we don't have a specific "roles" system yet, 
-  // so we'll just fetch general stats to populate the page for now.
-  // In production, you would have RLS on these queries ensuring only true admins can read.
+  // Real RBAC check — authentication alone is not authorization
+  const adminRole = await getAdminRole(supabase, userData.user.id);
+  if (!adminRole) {
+    redirect('/');
+  }
 
-  // Fetch some summary stats
-  const { count: orderCount } = await supabase.from('orders').select('*', { count: 'exact', head: true });
-  const { count: userCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
-  const { count: productCount } = await supabase.from('products').select('*', { count: 'exact', head: true });
+  // Fetch summary stats — only runs if authorized
+  const [
+    { count: orderCount },
+    { count: userCount },
+    { count: productCount },
+    { count: pendingVerifications },
+  ] = await Promise.all([
+    supabase.from('orders').select('*', { count: 'exact', head: true }),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }),
+    supabase.from('products').select('*', { count: 'exact', head: true }).eq('status', 'PUBLISHED'),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('verification_status', 'PENDING'),
+  ]);
+
+  const { data: campaign } = await supabase
+    .from('campaigns')
+    .select('id, name, status, ends_at, initial_coin_grant')
+    .in('status', ['LIVE', 'SCHEDULED', 'ENDING'])
+    .order('ends_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
   return (
-    <main className="flex-1 container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-display font-bold uppercase tracking-tight mb-8">Admin Dashboard</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-bg border-2 border-border-main p-6 rounded-xl">
-          <p className="text-text-muted font-bold uppercase tracking-widest text-sm mb-2">Total Orders</p>
-          <p className="text-4xl font-bold">{orderCount || 0}</p>
+    <main className="flex-1 container mx-auto px-4 py-8 max-w-6xl">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-display font-bold uppercase tracking-tight">Admin Dashboard</h1>
+          <p className="text-text-muted text-sm mt-1">Role: <span className="font-bold text-black">{adminRole}</span></p>
         </div>
-        <div className="bg-bg border-2 border-border-main p-6 rounded-xl">
-          <p className="text-text-muted font-bold uppercase tracking-widest text-sm mb-2">Registered Students</p>
-          <p className="text-4xl font-bold">{userCount || 0}</p>
-        </div>
-        <div className="bg-bg border-2 border-border-main p-6 rounded-xl">
-          <p className="text-text-muted font-bold uppercase tracking-widest text-sm mb-2">Active Products</p>
-          <p className="text-4xl font-bold">{productCount || 0}</p>
+        <div className="text-right text-sm text-text-faint">
+          <p>Logged in as</p>
+          <p className="font-bold text-black">{userData.user.email}</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="border-2 border-border-main rounded-xl p-6">
-          <h2 className="text-xl font-bold uppercase mb-4">Quick Links</h2>
-          <ul className="space-y-3">
-            <li>
-              <Link href="/admin/products" className="text-brand-green hover:underline font-bold">Manage Catalog</Link>
-            </li>
-            <li>
-              <Link href="/admin/orders" className="text-brand-green hover:underline font-bold">Manage Orders</Link>
-            </li>
-          </ul>
-        </div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        {[
+          { label: 'Total Orders', value: orderCount ?? 0 },
+          { label: 'Registered Students', value: userCount ?? 0 },
+          { label: 'Published Products', value: productCount ?? 0 },
+          { label: 'Pending Verification', value: pendingVerifications ?? 0, alert: (pendingVerifications ?? 0) > 0 },
+        ].map((stat) => (
+          <div key={stat.label} className={`border-2 p-5 ${stat.alert ? 'border-amber-400 bg-amber-50' : 'border-border-main bg-bg'}`}>
+            <p className="text-text-faint font-bold uppercase tracking-widest text-xs mb-2">{stat.label}</p>
+            <p className={`text-4xl font-bold tabular-nums ${stat.alert ? 'text-amber-600' : ''}`}>{stat.value}</p>
+          </div>
+        ))}
+      </div>
 
-        <div className="border-2 border-border-main rounded-xl p-6 bg-brand-green text-white">
-          <h2 className="text-xl font-bold uppercase mb-2">Campaign Status</h2>
-          <p className="text-sm font-bold opacity-90 mb-4">The NACOS 100 coin promotion is currently active.</p>
-          {/* We would wire this up to actual campaign config logic */}
-          <button className="bg-black text-white px-4 py-2 font-bold uppercase text-sm rounded-md w-full">
-            End Campaign (Freeze Carts)
-          </button>
-          <p className="text-xs text-center mt-2 opacity-75">Requires explicit confirmation.</p>
+      {/* Campaign Status */}
+      {campaign && (
+        <div className="mb-8 border-2 border-black p-6 bg-black text-white">
+          <div className="flex flex-wrap justify-between items-start gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest opacity-60 mb-1">Active Campaign</p>
+              <h2 className="text-2xl font-display font-bold">{campaign.name}</h2>
+              <p className="text-sm opacity-70 mt-1">
+                Status: <span className="font-bold uppercase">{campaign.status}</span> |{' '}
+                Closes: <span className="font-bold">{new Date(campaign.ends_at).toLocaleString('en-GB', { timeZone: 'Africa/Lagos' })}</span>
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Link href="/admin/campaigns" className="inline-flex items-center px-4 py-2 bg-white text-black font-bold text-sm uppercase hover:bg-gray-100 transition-colors">
+                Manage Campaign
+              </Link>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Navigation */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[
+          { href: '/admin/products', label: 'Manage Catalog', desc: 'Add and edit products' },
+          { href: '/admin/orders', label: 'Manage Orders', desc: 'View and fulfill orders' },
+          { href: '/admin/members', label: 'Verify Members', desc: 'Approve NACOS registrations', restricted: ['SUPER_ADMIN', 'MEMBER_VERIFIER', 'SUPPORT_ADMIN'] },
+        ].filter(item => !item.restricted || item.restricted.includes(adminRole)).map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className="border-2 border-border-main p-5 hover:border-black hover:bg-bg-subtle transition-colors block group"
+          >
+            <p className="font-bold uppercase tracking-wide mb-1 group-hover:underline">{item.label}</p>
+            <p className="text-sm text-text-muted">{item.desc}</p>
+          </Link>
+        ))}
       </div>
     </main>
   );

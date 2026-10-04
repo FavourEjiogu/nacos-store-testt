@@ -1,3 +1,4 @@
+// feat: wire checkout confirm to the transactional checkout_cart RPC
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
@@ -7,36 +8,47 @@ export async function POST(request: Request) {
     const cartId = formData.get('cart_id') as string;
 
     if (!cartId) {
-      return NextResponse.redirect(new URL('/cart?error=missing_cart', request.url));
+      return NextResponse.redirect(new URL('/cart?error=missing_cart', request.url), 303);
     }
 
     const supabase = await createClient();
     const { data: userData, error: userError } = await supabase.auth.getUser();
 
     if (userError || !userData.user) {
-      return NextResponse.redirect(new URL('/login', request.url));
+      return NextResponse.redirect(new URL('/login', request.url), 303);
     }
 
-    // Call RPC to convert cart to order
-    // Since complex transactional logic is best handled in postgres, we should have an RPC.
-    // For now, let's just update the cart status to FROZEN for demo purposes,
-    // assuming a batch job processes frozen carts at campaign end.
-    
-    const { error: updateError } = await supabase
+    // Get the campaign_id from the cart — we need it for the RPC
+    const { data: cart, error: cartError } = await supabase
       .from('carts')
-      .update({ status: 'FROZEN', frozen_at: new Date().toISOString() })
+      .select('id, campaign_id, status')
       .eq('id', cartId)
       .eq('user_id', userData.user.id)
-      .eq('status', 'OPEN');
+      .eq('status', 'OPEN')
+      .single();
 
-    if (updateError) {
-      console.error(updateError);
-      return NextResponse.redirect(new URL('/cart?error=checkout_failed', request.url));
+    if (cartError || !cart) {
+      console.error('Cart lookup error:', cartError);
+      return NextResponse.redirect(new URL('/cart?error=cart_not_found', request.url), 303);
     }
 
-    return NextResponse.redirect(new URL('/account/orders', request.url));
+    // Call the transactional RPC — this atomically: validates balance,
+    // debits ledger, creates order snapshot, and closes cart.
+    const { data: orderId, error: rpcError } = await supabase
+      .rpc('checkout_cart', {
+        p_campaign_id: cart.campaign_id,
+        p_user_id: userData.user.id,
+      });
+
+    if (rpcError) {
+      console.error('Checkout RPC error:', rpcError.message);
+      const msg = encodeURIComponent(rpcError.message || 'checkout_failed');
+      return NextResponse.redirect(new URL(`/cart?error=${msg}`, request.url), 303);
+    }
+
+    return NextResponse.redirect(new URL(`/account/orders?confirmed=${orderId}`, request.url), 303);
   } catch (error) {
-    console.error(error);
-    return NextResponse.redirect(new URL('/cart?error=unknown', request.url));
+    console.error('Unexpected checkout error:', error);
+    return NextResponse.redirect(new URL('/cart?error=unknown', request.url), 303);
   }
 }

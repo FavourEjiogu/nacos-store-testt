@@ -1,28 +1,27 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { createClient } from '@/lib/supabase/client';
 
 export function AddToCartForm({ product }: { product: any }) {
+  const router = useRouter();
   const supabase = createClient();
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  // Auto-select first options if available
-  useEffect(() => {
-    if (Object.keys(selectedOptions).length === 0 && product.product_option_groups) {
-      const initial: Record<string, string> = {};
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    if (product?.product_option_groups) {
       product.product_option_groups.forEach((group: any) => {
         if (group.product_option_values?.length > 0) {
           initial[group.id] = group.product_option_values[0].id;
         }
       });
-      setSelectedOptions(initial);
     }
-  }, [product, selectedOptions]);
+    return initial;
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   // Find the variant that matches selected options
   const selectedVariant = useMemo(() => {
@@ -190,7 +189,7 @@ export function AddToCartForm({ product }: { product: any }) {
       {success && (
         <div className="bg-green-50 text-nacos-green p-4 text-sm font-bold border border-nacos-green/30 flex items-center justify-between">
           <span>Added to cart successfully!</span>
-          <Button variant="outline" size="sm" onClick={() => window.location.href = '/cart'}>View Cart</Button>
+          <Button variant="outline" size="sm" onClick={() => router.push('/cart')}>View Cart</Button>
         </div>
       )}
 
